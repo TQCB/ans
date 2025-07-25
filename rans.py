@@ -1,3 +1,5 @@
+from typing import Iterable
+
 import numpy as np
 
 class RangeANSCoder:
@@ -11,15 +13,25 @@ class RangeANSCoder:
 
         self.m = np.sum(list(f.values()))
         self.c = self._calculate_c()
+        self.reverse_c = self._reverse_c()
 
     def _calculate_c(self):
-        cumulative_values = np.cumsum(list(self.f.values()))
+        # we need to add 0 and remove the last value, so our C gives the start
+        # of each interval and not the end
+        values = [0, *list(self.f.values())[:-1]]
+        cumulative_values = np.cumsum(values)
         return dict(zip(self.f.keys(), cumulative_values))
     
-    def _c_inv(self, r):
-        pass
+    def _reverse_c(self):
+        reverse_c = dict(sorted(self.c.items(), key=lambda x: -x[1]))
+        return reverse_c
+    
+    def _c_inv(self, r) -> str:
+        for key in self.reverse_c.keys():
+            if self.reverse_c[key] <= r:
+                return key
 
-    def encode(self, sequence):
+    def encode(self, sequence: Iterable):
         state = 0
         for symbol in sequence:
             state = self._encode_step(state, symbol)
@@ -35,13 +47,15 @@ class RangeANSCoder:
 
         return state
 
-    def decode(self, state):
+    def decode(self, state, n_symbols):
         sequence = []
-        while state != 0:
+        for _ in range(n_symbols):
             symbol, state = self._decode_step(state)
             sequence.append(symbol)
 
-        return ''.join(sequence)
+        # sequence is decoded in reverse 
+        reverse_sequence = sequence[::-1]
+        return reverse_sequence
     
     def _decode_step(self, state):
         # first we decode the symbol
@@ -53,16 +67,19 @@ class RangeANSCoder:
         C_s = self.c[symbol]
         d = np.floor(state / self.m)
         next_state = d * F_s + r - C_s
-        
+
         return symbol, next_state
 
 if __name__ == '__main__':
+    message = ["A", "C", "B", "C", "C", "A"]
     f = {'A': 2, 'B': 1, 'C': 3}
+
     rans = RangeANSCoder(f)
 
-    message = "ACBCCA"
-    compressed_state = rans.encode(message)
-    print(compressed_state)
+    print(f"Message: {message}")
 
-    decompressed_message = rans.decode(compressed_state)
-    print(decompressed_message)
+    compressed_state = rans.encode(message)
+    print(f"Compressed state: {compressed_state}")
+
+    decompressed_message = rans.decode(compressed_state, len(message))
+    print(f"Decoded message: {decompressed_message}")
