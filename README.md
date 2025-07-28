@@ -20,7 +20,7 @@ $$X_0 = 0, s_1 = 5$$
 
 This system works well but fails when we want to optimally encode sequences with a non-uniform symbol distribution. At time step $t$, we multiply the size of the state by roughly 10 since $X_t \approx X_{t-1} \times 10$. This is optimal if all symbols $[0, ..., 9]$ are equiprobable, as we use $log_2 10$ bits per encoded symbol. In the case of a non-uniform symbol distribution, our entropy can be far lower than this.
 
-To generalize our structure to cases with non-uniform distributions, we can scale our most frequent symbols with a factor smaller than 10 and the least frequent by a larget factor. This is how rANS allows us to achieve efficient representations of a sequence in a single integer state.
+To generalize our structure to cases with non-uniform distributions, we can scale our most frequent symbols with a factor smaller than 10 and the least frequent by a largest factor. This is how rANS allows us to achieve efficient representations of a sequence in a single integer state.
 
 ### Notation
 
