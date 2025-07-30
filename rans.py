@@ -8,7 +8,7 @@ class RangeANSCoder:
             f: dict[Any, int],
             k: Optional[int] = 12,
             l: int = 16,
-            flush_size: int = 8,
+            flush_size: int = 1,
     ):
         """
         Initialize the coder, notably with alphabet frequency.
@@ -30,17 +30,19 @@ class RangeANSCoder:
                 the value of M would decrease efficiency too greatly.
                 Default is 12. None does not normalize F.
             l: int
+                Used as power of 2 to calculate lower bound for state size.
+                If X < L during streaming, the state will be renormalized. Will
+                be used to define H = L x M.
             flush_size: int
                 Number of bits to flush when the encoded state becomes superior 
-                to H.B
+                to H.
 
         """
         self.f = dict(sorted(f.items(), key=lambda x: -x[1])) # highest frequency symbols first
-        self.m = np.sum(list(f.values()))
+        self.m = sum(list(f.values()))
         
-        self.l = 2**l
+        self.l: int = 2**l
         self.flush_size = flush_size
-        self.h = self.l * 2**(self.flush_size) # H = L * 2^bits, upper limit is lower limit and however many bits we flush
         
         if k is not None:
             self._normalize_f(k)
@@ -109,10 +111,10 @@ class RangeANSCoder:
         """
         state = 0
         for symbol in sequence:
-            state = self._encode_step(state, symbol)
+            state = self._encode_symbol(state, symbol)
         return state
 
-    def _encode_step(self, state: int, symbol: Any) -> int:
+    def _encode_symbol(self, state: int, symbol: Any) -> int:
         F_s = self.f[symbol]
         C_s = self.c[symbol]
 
@@ -125,14 +127,14 @@ class RangeANSCoder:
     def decode(self, state: int, n_symbols: int) -> list:
         sequence = []
         for _ in range(n_symbols):
-            symbol, state = self._decode_step(state)
+            symbol, state = self._decode_symbol(state)
             sequence.append(symbol)
 
         # sequence is decoded in reverse 
         reverse_sequence = sequence[::-1]
         return reverse_sequence
     
-    def _decode_step(self, state: int) -> tuple[Any, int]:
+    def _decode_symbol(self, state: int) -> tuple[Any, int]:
         # first we decode the symbol
         r = state % self.m
         symbol = self._c_inv(r)
@@ -156,26 +158,20 @@ class RangeANSCoder:
         """
         
         stream = []
-        state = self.l # we initiate to L to make sure we are always within L < X_t < H
-        print(f"H =  {self.h}")
-        print(f"Encoding iteration 0: State = {state}")
+        state: int = self.l # we initialize to L to make sure we are always within L < X_t < H
 
         for symbol in sequence:
-            state = self._encode_step(state, symbol)
-
-            # check if in interval
-            while state >= self.h:
-                print(f"State is too large. Converting state: {state} into ", end="")
-                print(f"TEST {((1 << self.flush_size) - 1)}")
-                print(state, ((1 << self.flush_size) - 1), state & ((1 << self.flush_size) - 1))
-                bits_to_write = state & ((1 << self.flush_size) - 1) # mask state by number of bits to flush
+            while state >= self.l * self.f[symbol]:
+                bits_to_write = state & ((1 << self.flush_size) - 1) # bitmask last flush_size bits of state
                 stream.append(bits_to_write)
-                state = state >> self.flush_size # right shift state by flush size
-                print(f"state: {state} and writing {bits_to_write}")
-            
+
+                print(f"state before shift: {state}")
+                state >>= self.flush_size
+                print(f"state after shift {state}")
+
+            state = self._encode_symbol(state, symbol)
             print(f"Encoding iteration {symbol}: State = {state} Bitstream = {stream}")
 
-        state = int(state)
         return state, stream # return final state and bitstream
     
     def stream_encode_to_file(
@@ -191,7 +187,7 @@ class RangeANSCoder:
     def stream_decode(
             self,
             state: int,
-            bitstream: bytearray,
+            bitstream: list,
             n_symbols: int,
     ) -> list:
         print("================")
@@ -203,16 +199,19 @@ class RangeANSCoder:
         sequence = []
 
         for i in range(n_symbols):
-            # check that state isn't inferior to L and still have bits left
-            while state < self.l:
-                print("Reading from bitstream, old state: {state}", end=" ")
-                state = (state << self.flush_size) | bitstream[stream_idx]
-                print(f"New state: {state}, read bits: {bitstream[stream_idx]}")
-                stream_idx -= 1
-
-            symbol, state = self._decode_step(state)
-            print(f"Iteration: {i} Decoded symbol: {symbol} New state: {state}")
+            symbol, state = self._decode_symbol(state)
             sequence.append(symbol)
+            print(f"Iteration: {i} Decoded symbol: {symbol} New state: {state}")
+
+            # check that state isn't inferior to L and still have bits left
+            while state < self.l * self.m and stream_idx >= 0:
+                if stream_idx < 0:
+                    raise ValueError(f"Ran out of bits while decoding symbol {i}")
+                print("Reading from bitstream, old state: {state}", end=" ")
+                bits = bitstream.pop()
+                state = (state << self.flush_size) | bits
+                print(f"New state: {state}, read bits: {bits}")
+                stream_idx -= 1
 
         # sequence is decoded in reverse 
         reverse_sequence = sequence[::-1]
@@ -221,10 +220,13 @@ class RangeANSCoder:
 if __name__ == '__main__':
 
     f = {'A': 2, 'B': 1, 'C': 3}
-    message = ["A", "C", "B", "C", "C", "A"] * 1
+    message = ["A", "C", "B", "C", "C", "A"] * 4
+    # message = ["A", "B", "C"]
     print(f"Message: {message}")
 
     rans = RangeANSCoder(f)
+
+    print(rans.f, rans.c)
 
     # --------------------------------
     # ----- NORMAL ENCODE/DECODE -----
