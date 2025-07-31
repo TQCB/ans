@@ -9,6 +9,7 @@ class RangeANSCoder:
             k: Optional[int] = 12,
             l: int = 16,
             flush_size: int = 1,
+            range_factor: int = 16,
     ):
         """
         Initialize the coder, notably with alphabet frequency.
@@ -38,17 +39,22 @@ class RangeANSCoder:
                 to H.
 
         """
+        self.range_factor = 1 << range_factor
+
         self.f = dict(sorted(f.items(), key=lambda x: -x[1])) # highest frequency symbols first
         self.m = sum(list(f.values()))
-        
-        self.l: int = 2**l
-        self.flush_size = flush_size
-        
+
         if k is not None:
             self._normalize_f(k)
 
         self.c = self._calculate_c()
         self.reverse_c = self._reverse_c()
+        
+        self.flush_size = flush_size
+        self.flush_mask = (1 << self.flush_size) - 1
+
+        self.l: int = self.range_factor * self.m
+        self.h: int = self.l * self.flush_mask
 
     def _get_highest_k(self, k):
         for candidate_k in range(k):
@@ -62,8 +68,10 @@ class RangeANSCoder:
         """
         k = self._get_highest_k(k)
         new_m = 2**k
+
+        # Rounding may not always bring the sum 2**k, not a very robust implementation
         self.f = {k: round((v / self.m)*(new_m)) for k, v in self.f.items()}
-        self.m = new_m
+        self.m = sum(self.f.values())
 
 
     def _calculate_c(self) -> dict[Any, int]:
@@ -150,29 +158,35 @@ class RangeANSCoder:
     def stream_encode(
             self,
             sequence: list,
-        ) -> tuple[int, list]:
+        ) -> list:
         """
         Encode a sequence of symbols into a byte array that can be written to a
         file. Since this a stream encoding, we can accept an input sequence of
         arbitrary length.
-        """
-        
+        We encode in reverse order (LIFO).
+        """ 
         stream = []
-        state: int = self.l # we initialize to L to make sure we are always within L < X_t < H
+        # we initialize to L to make sure we are always within [L, H)
+        state: int = self.l
 
-        for symbol in sequence:
-            while state >= self.l * self.f[symbol]:
-                bits_to_write = state & ((1 << self.flush_size) - 1) # bitmask last flush_size bits of state
-                stream.append(bits_to_write)
-
-                print(f"state before shift: {state}")
-                state >>= self.flush_size
-                print(f"state after shift {state}")
-
+        # iterate in reverse order
+        for symbol in reversed(sequence):
             state = self._encode_symbol(state, symbol)
-            print(f"Encoding iteration {symbol}: State = {state} Bitstream = {stream}")
-
-        return state, stream # return final state and bitstream
+            while state >= self.h:
+                bits_to_write = state & self.flush_mask # bitmask last flush_size bits of state
+                stream.append(bits_to_write)
+                state >>= self.flush_size
+            print(f"Encoding iteration {symbol}: State = {state} Stream length = {len(stream)}")
+        
+        # After encoding all symbols, flush the final state into the stream.
+        # The decoder will reconstruct this state to begin decoding.
+        print(f"Flushing final state: {state}")
+        while state > 0:
+            bits_to_write = state & self.flush_mask
+            stream.append(bits_to_write)
+            state >>= self.flush_size
+        
+        return stream # return final state and bitstream
     
     def stream_encode_to_file(
             self,
@@ -186,16 +200,26 @@ class RangeANSCoder:
 
     def stream_decode(
             self,
-            state: int,
             bitstream: list,
             n_symbols: int,
     ) -> list:
         print("================")
         print("START OF DECODING")
-        print(f"{state=}\n{bitstream=}\n{n_symbols=}")
+        print(f"{bitstream=}\n{n_symbols=}")
         print("================")
 
-        stream_idx = len(bitstream) - 1
+        # 1. Reconstruct the initial state from the stream.
+        # We must read from the stream until the state is in the valid
+        # working range [L, H). This reverses the final flush of the encoder.
+        state = 0
+        while state < self.l:
+            # This should not fail unless the stream is corrupt/empty
+            if not bitstream:
+                raise ValueError("Bitstream is too short to reconstruct initial state.")
+            bits = bitstream.pop()
+            state = (state << self.flush_size) | bits
+        print(f"Reconstructed initial state: {state}")
+
         sequence = []
 
         for i in range(n_symbols):
@@ -204,29 +228,24 @@ class RangeANSCoder:
             print(f"Iteration: {i} Decoded symbol: {symbol} New state: {state}")
 
             # check that state isn't inferior to L and still have bits left
-            while state < self.l * self.m and stream_idx >= 0:
-                if stream_idx < 0:
-                    raise ValueError(f"Ran out of bits while decoding symbol {i}")
-                print("Reading from bitstream, old state: {state}", end=" ")
+            while state < self.l:
+                if not bitstream:
+                    if i == n_symbols - 1 and state == self.l:
+                        break
+                    # only happens if stream is corrupted or final state is wrong
+                    raise ValueError("Bitstream exhausted prematurely. Check for corruption or incorrect state.")
                 bits = bitstream.pop()
                 state = (state << self.flush_size) | bits
-                print(f"New state: {state}, read bits: {bits}")
-                stream_idx -= 1
 
-        # sequence is decoded in reverse 
-        reverse_sequence = sequence[::-1]
-        return reverse_sequence
+        return sequence
 
 if __name__ == '__main__':
 
     f = {'A': 2, 'B': 1, 'C': 3}
-    message = ["A", "C", "B", "C", "C", "A"] * 4
-    # message = ["A", "B", "C"]
+    message = ["A", "C", "B", "C", "C", "A"] * 1
     print(f"Message: {message}")
 
     rans = RangeANSCoder(f)
-
-    print(rans.f, rans.c)
 
     # --------------------------------
     # ----- NORMAL ENCODE/DECODE -----
@@ -242,9 +261,9 @@ if __name__ == '__main__':
     # ----- STREAM ENCODE/DECODE -----
     # --------------------------------
 
-    final_state, compressed_stream = rans.stream_encode(message)
-    print(f"Final state: {final_state}\nCompressed bitstream: {compressed_stream}")
+    compressed_stream = rans.stream_encode(message)
+    print(f"Compressed bitstream: {compressed_stream}")
 
-    decompressed_message = rans.stream_decode(final_state, compressed_stream, len(message))
+    decompressed_message = rans.stream_decode(compressed_stream, len(message))
     print(f"Decompressed message from stream: {decompressed_message}")
     print(f"Equality check: {message == decompressed_message}")
