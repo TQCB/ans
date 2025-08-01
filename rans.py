@@ -10,9 +10,8 @@ class RangeANSCoder:
             self,
             f: dict[Any, int],
             k: Optional[int] = 12,
-            l: int = 16,
-            flush_size: int = 1,
             range_factor: int = 16,
+            flush_size: int = 1,
     ):
         """
         Initialize the coder, notably with alphabet frequency.
@@ -33,10 +32,6 @@ class RangeANSCoder:
                 messages, where decoding time is less important and increasing
                 the value of M would decrease efficiency too greatly.
                 Default is 12. None does not normalize F.
-            l: int
-                Used as power of 2 to calculate lower bound for state size.
-                If X < L during streaming, the state will be renormalized. Will
-                be used to define H = L x M.
             flush_size: int
                 Number of bits to flush when the encoded state becomes superior 
                 to H.
