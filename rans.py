@@ -253,37 +253,37 @@ class RangeANSCoder:
 
 if __name__ == '__main__':
 
-    # f = {'A': 2, 'B': 1, 'C': 3}
-    # message = ["A", "C", "B", "C", "C", "A"] * 4
-    original_message = "George Washing Machine"
-    message = list(original_message) * 1000
+    def random_alphabet_string_generator(length):
+        import random
+        alphabet = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        l_chars = [c.lower() for c in alphabet]
+        numbers = list("0123456789")
+
+        alphabet.extend(l_chars)
+        alphabet.extend(numbers)
+
+        message = []
+        for _ in range(length):
+            symbol = random.choice(alphabet)
+            message.append(symbol)
+        return message
+    
+    message = random_alphabet_string_generator(100)
     f = Counter(message)
-
-    print(f"Message: {original_message}")
-
+    print(f"Message: {"".join(message)}")
     rans = RangeANSCoder(f)
 
-    # --------------------------------
-    # ----- NORMAL ENCODE/DECODE -----
-    # --------------------------------
-
-    # compressed_state = rans.encode(message)
-    # print(f"Compressed state: {compressed_state}")
-
-    # decompressed_message = rans.decode(compressed_state, len(message))
-    # print(f"Decoded message: {decompressed_message}")
-
-    # --------------------------------
-    # ----- STREAM ENCODE/DECODE -----
-    # --------------------------------
-
+    # Compress data
     compressed_stream = rans.stream_encode(message)
     print(f"Compressed bitstream: {[int(x) for x in compressed_stream]}")
     
+    # See compression rate
     print("\n")
     print(f"Original message length in bytes: {len(message)}\nCompressed bitstream length in bytes: {len(compressed_stream) / 8}")
+    print(f"Compression rate: {(len(compressed_stream) / 8) / len(message) * 100:.2f}%")
     print("\n")
 
+    # Decompress data
     decompressed_message = rans.stream_decode(compressed_stream)
     print(f"Decompressed message from stream: {"".join(decompressed_message)}")
     print(f"Equality check: {message == decompressed_message}")
