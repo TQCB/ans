@@ -1,4 +1,5 @@
 from typing import Any, Optional
+from collections import Counter
 
 import numpy as np
 
@@ -252,9 +253,13 @@ class RangeANSCoder:
 
 if __name__ == '__main__':
 
-    f = {'A': 2, 'B': 1, 'C': 3}
-    message = ["A", "C", "B", "C", "C", "A"] * 4
-    print(f"Message: {message}")
+    # f = {'A': 2, 'B': 1, 'C': 3}
+    # message = ["A", "C", "B", "C", "C", "A"] * 4
+    original_message = "George Washing Machine"
+    message = list(original_message) * 1000
+    f = Counter(message)
+
+    print(f"Message: {original_message}")
 
     rans = RangeANSCoder(f)
 
@@ -273,8 +278,12 @@ if __name__ == '__main__':
     # --------------------------------
 
     compressed_stream = rans.stream_encode(message)
-    print(f"Compressed bitstream: {compressed_stream}")
+    print(f"Compressed bitstream: {[int(x) for x in compressed_stream]}")
+    
+    print("\n")
+    print(f"Original message length in bytes: {len(message)}\nCompressed bitstream length in bytes: {len(compressed_stream) / 8}")
+    print("\n")
 
     decompressed_message = rans.stream_decode(compressed_stream)
-    print(f"Decompressed message from stream: {decompressed_message}")
+    print(f"Decompressed message from stream: {"".join(decompressed_message)}")
     print(f"Equality check: {message == decompressed_message}")
